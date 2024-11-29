@@ -1,0 +1,11 @@
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+Testing
+
+
+bin/
+cmake-build-debug/
+cmake-build-release/
+sample/
+.idea/
