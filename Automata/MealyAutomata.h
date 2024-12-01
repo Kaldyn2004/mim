@@ -167,17 +167,16 @@ public:
             }
         }
 
+
         for (size_t i = 0; i < m_inputSymbols.size(); ++i)
         {
-            vector<pair<string, string>> newRow;
-            for (size_t j = 0; j < m_states.size(); ++j)
+            for (size_t j = 0; j < minimizedStates.size(); ++j)
             {
                 int nextIndex = find(m_states.begin(), m_states.end(), m_transitions[i][j].first) - m_states.begin();
-                string newState = stateMap[partition[nextIndex]];
+                string nextState = stateMap[partition[nextIndex]];
                 string outputSymbol = m_transitions[i][j].second;
-                newRow.emplace_back(newState, outputSymbol);
+                minimizedTransitions[i].emplace_back(nextState, outputSymbol);
             }
-            minimizedTransitions[i] = newRow;
         }
 
         m_states = move(minimizedStates);
