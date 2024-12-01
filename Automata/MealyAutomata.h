@@ -23,7 +23,8 @@ public:
     void ReadFromFile(const std::string &filename) override
     {
         ifstream file(filename);
-        if (!file.is_open()) {
+        if (!file.is_open())
+        {
             cerr << "Error: Unable to open file " << filename << endl;
             exit(1);
         }
@@ -34,18 +35,21 @@ public:
         stringstream header(line);
         string cell;
         getline(header, cell, ';');
-        while (getline(header, cell, ';')) {
+        while (getline(header, cell, ';'))
+        {
             m_states.push_back(cell);
         }
 
-        while (getline(file, line)) {
+        while (getline(file, line))
+        {
             stringstream row(line);
             string inputSymbol;
             getline(row, inputSymbol, ';');
             m_inputSymbols.push_back(inputSymbol);
 
             vector<pair<string, string>> rowTransitions;
-            while (getline(row, cell, ';')) {
+            while (getline(row, cell, ';'))
+            {
                 auto pos = cell.find('/');
                 string nextState = cell.substr(0, pos);
                 string outputSymbol = cell.substr(pos + 1);
@@ -63,7 +67,8 @@ public:
         queue<string> toVisit;
         toVisit.push(m_states[0]);
 
-        while (!toVisit.empty()) {
+        while (!toVisit.empty())
+        {
             string current = toVisit.front();
             toVisit.pop();
 
@@ -71,9 +76,11 @@ public:
             reachable.insert(current);
 
             int stateIndex = find(m_states.begin(), m_states.end(), current) - m_states.begin();
-            for (const auto &transition : m_transitions) {
+            for (const auto &transition : m_transitions)
+            {
                 string nextState = transition[stateIndex].first;
-                if (!reachable.count(nextState)) {
+                if (!reachable.count(nextState))
+                {
                     toVisit.push(nextState);
                 }
             }
@@ -82,14 +89,18 @@ public:
         vector<string> reducedStates;
         vector<vector<pair<string, string>>> reducedTransitions;
 
-        for (const string &state : m_states) {
+        for (const string &state : m_states)
+        {
             if (reachable.count(state)) reducedStates.push_back(state);
         }
 
-        for (const auto &row : m_transitions) {
+        for (const auto &row : m_transitions)
+        {
             vector<pair<string, string>> newRow;
-            for (size_t i = 0; i < m_states.size(); ++i) {
-                if (reachable.count(m_states[i])) {
+            for (size_t i = 0; i < m_states.size(); ++i)
+            {
+                if (reachable.count(m_states[i]))
+                {
                     newRow.push_back(row[i]);
                 }
             }
@@ -99,59 +110,67 @@ public:
         m_states = move(reducedStates);
         m_transitions = move(reducedTransitions);
 
-        // Группировка состояний по эквивалентности
         vector<int> partition(m_states.size(), 0);
         unordered_map<string, int> outputMap;
 
-        // Инициализация групп
-        for (size_t i = 0; i < m_states.size(); ++i) {
+        for (size_t i = 0; i < m_states.size(); ++i)
+        {
             string outputs;
-            for (const auto &row : m_transitions) {
+            for (const auto &row : m_transitions)
+            {
                 outputs += row[i].second + ",";
             }
-            if (outputMap.find(outputs) == outputMap.end()) {
+            if (outputMap.find(outputs) == outputMap.end())
+            {
                 outputMap[outputs] = outputMap.size();
             }
             partition[i] = outputMap[outputs];
         }
 
-        // Итеративное уточнение групп
         bool updated;
-        do {
+        do
+        {
             updated = false;
             unordered_map<string, int> newPartitionMap;
 
-            for (size_t i = 0; i < m_states.size(); ++i) {
+            for (size_t i = 0; i < m_states.size(); ++i)
+            {
                 string key = to_string(partition[i]) + ",";
-                for (const auto &row : m_transitions) {
+                for (const auto &row : m_transitions)
+                {
                     int nextIndex = find(m_states.begin(), m_states.end(), row[i].first) - m_states.begin();
                     key += to_string(partition[nextIndex]) + ",";
                 }
-                if (newPartitionMap.find(key) == newPartitionMap.end()) {
+                if (newPartitionMap.find(key) == newPartitionMap.end())
+                {
                     newPartitionMap[key] = newPartitionMap.size();
                 }
-                if (partition[i] != newPartitionMap[key]) {
+                if (partition[i] != newPartitionMap[key])
+                {
                     updated = true;
                 }
                 partition[i] = newPartitionMap[key];
             }
         } while (updated);
 
-        // Создание минимизированного автомата
         unordered_map<int, string> stateMap;
         vector<string> minimizedStates;
         vector<vector<pair<string, string>>> minimizedTransitions(m_inputSymbols.size());
 
-        for (size_t i = 0; i < m_states.size(); ++i) {
-            if (stateMap.find(partition[i]) == stateMap.end()) {
+        for (size_t i = 0; i < m_states.size(); ++i)
+        {
+            if (stateMap.find(partition[i]) == stateMap.end())
+            {
                 stateMap[partition[i]] = "Q" + to_string(stateMap.size());
                 minimizedStates.push_back(stateMap[partition[i]]);
             }
         }
         m_states = move(minimizedStates);
 
-        for (size_t i = 0; i < m_inputSymbols.size(); ++i) {
-            for (size_t j = 0; j < m_states.size(); ++j) {
+        for (size_t i = 0; i < m_inputSymbols.size(); ++i)
+        {
+            for (size_t j = 0; j < m_states.size(); ++j)
+            {
                 int nextIndex = find(m_states.begin(), m_states.end(), m_transitions[i][j].first) - m_states.begin();
                 string nextState = stateMap[partition[nextIndex]];
                 string outputSymbol = m_transitions[i][j].second;
@@ -172,14 +191,17 @@ public:
         }
 
         file << ";";
-        for (const string &state : m_states) {
+        for (const string &state : m_states)
+        {
             file << state << ";";
         }
         file << endl;
 
-        for (size_t i = 0; i < m_inputSymbols.size(); ++i) {
+        for (size_t i = 0; i < m_inputSymbols.size(); ++i)
+        {
             file << m_inputSymbols[i] << ";";
-            for (const auto &transition : m_transitions[i]) {
+            for (const auto &transition : m_transitions[i])
+            {
                 file << transition.first << "/" << transition.second << ";";
             }
             file << endl;
@@ -194,4 +216,4 @@ private:
     vector<vector<pair<string, string>>> m_transitions;
 };
 
-#endif // LAB1_MEALYAUTOMAT_H
+#endif
