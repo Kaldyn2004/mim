@@ -1,5 +1,5 @@
-;X1;X3;X2
-z1;X3/w5;X3/w1;X1/w2
-z2;X3/w3;X1/w6;X2/w6
-z3;X1/w5;X2/w1;X3/w2
-z4;X1/w6;X3/w7;X3/w7
+;x0;x1;x2
+z1;x2/w5;x0/w2;x2/w1
+z2;x2/w3;x1/w6;x0/w6
+z3;x0/w5;x2/w2;x1/w1
+z4;x0/w6;x2/w7;x2/w7
