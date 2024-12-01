@@ -156,12 +156,13 @@ public:
         unordered_map<int, string> stateMap;
         vector<string> minimizedStates;
         vector<vector<pair<string, string>>> minimizedTransitions(m_inputSymbols.size());
+        char sim = m_states[0][0];
 
         for (size_t i = 0; i < m_states.size(); ++i)
         {
             if (stateMap.find(partition[i]) == stateMap.end())
             {
-                stateMap[partition[i]] = "Q" + to_string(stateMap.size());
+                stateMap[partition[i]] = sim + to_string(stateMap.size());
                 minimizedStates.push_back(stateMap[partition[i]]);
             }
         }
@@ -190,19 +191,18 @@ public:
             exit(1);
         }
 
-        file << ";";
         for (const string &state : m_states)
         {
-            file << state << ";";
+            file << ";" << state;
         }
         file << endl;
 
         for (size_t i = 0; i < m_inputSymbols.size(); ++i)
         {
-            file << m_inputSymbols[i] << ";";
+            file << m_inputSymbols[i];
             for (const auto &transition : m_transitions[i])
             {
-                file << transition.first << "/" << transition.second << ";";
+                file << ";" << transition.first << "/" << transition.second;
             }
             file << endl;
         }
