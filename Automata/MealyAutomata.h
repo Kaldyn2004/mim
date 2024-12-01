@@ -13,273 +13,185 @@
 #include <algorithm>
 #include <fstream>
 #include <stdexcept>
+using namespace std;
 
 class MealyAutomata final : public IAutomata
 {
 public:
     MealyAutomata() = default;
 
-    void ReadFromFile(const std::string& filename) override
+    void ReadFromFile(const std::string &filename) override
     {
-        std::ifstream input(filename);
-        if (!input.is_open())
-        {
-            throw std::invalid_argument("Could not open file " + filename + " for reading.");
+        ifstream file(filename);
+        if (!file.is_open()) {
+            cerr << "Error: Unable to open file " << filename << endl;
+            exit(1);
         }
 
-        std::string line;
+        string line;
 
-        if (!std::getline(input, line))
-        {
-            throw std::invalid_argument("File is empty or has invalid format: " + filename);
-        }
-
-        std::stringstream headerStream(line);
-        std::string cell;
-
-        std::getline(headerStream, cell, ';');
-
-        m_states.clear();
-        while (std::getline(headerStream, cell, ';'))
-        {
+        getline(file, line);
+        stringstream header(line);
+        string cell;
+        getline(header, cell, ';');
+        while (getline(header, cell, ';')) {
             m_states.push_back(cell);
         }
 
-        m_inputSymbols.clear();
-        m_transitionTable.clear();
-
-        while (std::getline(input, line))
-        {
-            std::stringstream rowStream(line);
-
-            std::string inputSymbol;
-            if (!std::getline(rowStream, inputSymbol, ';'))
-            {
-                throw std::invalid_argument("Invalid row format in file: " + filename);
-            }
+        while (getline(file, line)) {
+            stringstream row(line);
+            string inputSymbol;
+            getline(row, inputSymbol, ';');
             m_inputSymbols.push_back(inputSymbol);
 
-            std::vector<Transition> transitions;
-            size_t stateIndex = 0;
-
-            while (std::getline(rowStream, cell, ';'))
-            {
-                size_t slashPos = cell.find('/');
-                if (slashPos == std::string::npos)
-                {
-                    throw std::invalid_argument("Invalid transition format in file: " + filename);
-                }
-
-                std::string nextState = cell.substr(0, slashPos);
-                std::string outputSymbol = cell.substr(slashPos + 1);
-
-                if (stateIndex >= m_states.size())
-                {
-                    throw std::out_of_range("More transitions than states in file: " + filename);
-                }
-
-                transitions.emplace_back(nextState, outputSymbol);
-                ++stateIndex;
+            vector<pair<string, string>> rowTransitions;
+            while (getline(row, cell, ';')) {
+                auto pos = cell.find('/');
+                string nextState = cell.substr(0, pos);
+                string outputSymbol = cell.substr(pos + 1);
+                rowTransitions.emplace_back(nextState, outputSymbol);
             }
-
-            if (transitions.size() != m_states.size())
-            {
-                throw std::invalid_argument("Inconsistent number of transitions for input symbol: " + inputSymbol);
-            }
-
-            m_transitionTable[inputSymbol] = transitions;
+            m_transitions.push_back(rowTransitions);
         }
 
-        if (m_states.empty())
-        {
-            throw std::invalid_argument("No states found in file: " + filename);
-        }
-        m_initialState = m_states.front();
+        file.close();
     }
 
     void Minimize() override
     {
-        RemoveUnreachableStates();
-        MergeEquivalentStates();
-    }
+        unordered_set<string> reachable;
+        queue<string> toVisit;
+        toVisit.push(m_states[0]);
 
+        while (!toVisit.empty()) {
+            string current = toVisit.front();
+            toVisit.pop();
+
+            if (reachable.count(current)) continue;
+            reachable.insert(current);
+
+            int stateIndex = find(m_states.begin(), m_states.end(), current) - m_states.begin();
+            for (const auto &transition : m_transitions) {
+                string nextState = transition[stateIndex].first;
+                if (!reachable.count(nextState)) {
+                    toVisit.push(nextState);
+                }
+            }
+        }
+
+        vector<string> reducedStates;
+        vector<vector<pair<string, string>>> reducedTransitions;
+
+        for (const string &state : m_states) {
+            if (reachable.count(state)) reducedStates.push_back(state);
+        }
+
+        for (const auto &row : m_transitions) {
+            vector<pair<string, string>> newRow;
+            for (size_t i = 0; i < m_states.size(); ++i) {
+                if (reachable.count(m_states[i])) {
+                    newRow.push_back(row[i]);
+                }
+            }
+            reducedTransitions.push_back(newRow);
+        }
+
+        m_states = move(reducedStates);
+        m_transitions = move(reducedTransitions);
+
+        // Группировка состояний по эквивалентности
+        vector<int> partition(m_states.size(), 0);
+        unordered_map<string, int> outputMap;
+
+        // Инициализация групп
+        for (size_t i = 0; i < m_states.size(); ++i) {
+            string outputs;
+            for (const auto &row : m_transitions) {
+                outputs += row[i].second + ",";
+            }
+            if (outputMap.find(outputs) == outputMap.end()) {
+                outputMap[outputs] = outputMap.size();
+            }
+            partition[i] = outputMap[outputs];
+        }
+
+        // Итеративное уточнение групп
+        bool updated;
+        do {
+            updated = false;
+            unordered_map<string, int> newPartitionMap;
+
+            for (size_t i = 0; i < m_states.size(); ++i) {
+                string key = to_string(partition[i]) + ",";
+                for (const auto &row : m_transitions) {
+                    int nextIndex = find(m_states.begin(), m_states.end(), row[i].first) - m_states.begin();
+                    key += to_string(partition[nextIndex]) + ",";
+                }
+                if (newPartitionMap.find(key) == newPartitionMap.end()) {
+                    newPartitionMap[key] = newPartitionMap.size();
+                }
+                if (partition[i] != newPartitionMap[key]) {
+                    updated = true;
+                }
+                partition[i] = newPartitionMap[key];
+            }
+        } while (updated);
+
+        // Создание минимизированного автомата
+        unordered_map<int, string> stateMap;
+        vector<string> minimizedStates;
+        vector<vector<pair<string, string>>> minimizedTransitions(m_inputSymbols.size());
+
+        for (size_t i = 0; i < m_states.size(); ++i) {
+            if (stateMap.find(partition[i]) == stateMap.end()) {
+                stateMap[partition[i]] = "Q" + to_string(stateMap.size());
+                minimizedStates.push_back(stateMap[partition[i]]);
+            }
+        }
+        m_states = move(minimizedStates);
+
+        for (size_t i = 0; i < m_inputSymbols.size(); ++i) {
+            for (size_t j = 0; j < m_states.size(); ++j) {
+                int nextIndex = find(m_states.begin(), m_states.end(), m_transitions[i][j].first) - m_states.begin();
+                string nextState = stateMap[partition[nextIndex]];
+                string outputSymbol = m_transitions[i][j].second;
+                minimizedTransitions[i].emplace_back(nextState, outputSymbol);
+            }
+        }
+
+
+        m_transitions = move(minimizedTransitions);
+    }
 
     void PrintToFile(const std::string &filename) const override
     {
-        std::ofstream output(filename);
-        if (!output.is_open())
-        {
-            throw std::invalid_argument("Could not open file " + filename + " for writing.");
+        ofstream file(filename);
+        if (!file.is_open()) {
+            cerr << "Error: Unable to write to file " << filename << endl;
+            exit(1);
         }
 
-        for (const auto& state : m_states)
-        {
-            output << ';' << state;
+        file << ";";
+        for (const string &state : m_states) {
+            file << state << ";";
         }
-        output << std::endl;
+        file << endl;
 
-        for (const auto& [inputSymbol, transitions] : m_transitionTable)
-        {
-            output << inputSymbol;
-            for (const auto& transition : transitions)
-            {
-                output << ";" << transition.nextState << "/" << transition.outputSymbol;
+        for (size_t i = 0; i < m_inputSymbols.size(); ++i) {
+            file << m_inputSymbols[i] << ";";
+            for (const auto &transition : m_transitions[i]) {
+                file << transition.first << "/" << transition.second << ";";
             }
-            output << std::endl;
+            file << endl;
         }
+
+        file.close();
     }
+
 private:
-    std::vector<std::string> m_states;
-    std::string m_initialState;
-    std::vector<std::string> m_inputSymbols;
-    std::map<std::string, std::vector<Transition>> m_transitionTable;
-
-    void RemoveUnreachableStates()
-    {
-        std::unordered_set<std::string> reachableStates;
-        std::queue<std::string> toVisit;
-
-        reachableStates.insert(m_initialState);
-        toVisit.push(m_initialState);
-
-        while (!toVisit.empty())
-        {
-            std::string currentState = toVisit.front();
-            toVisit.pop();
-
-            for (const auto& [inputSymbol, transitions] : m_transitionTable)
-            {
-                for (const auto& transition : transitions)
-                {
-                    if (reachableStates.find(transition.nextState) == reachableStates.end())
-                    {
-                        reachableStates.insert(transition.nextState);
-                        toVisit.push(transition.nextState);
-                    }
-                }
-            }
-        }
-
-        for (auto it = m_transitionTable.begin(); it != m_transitionTable.end();)
-        {
-            it->second.erase(
-                    std::remove_if(it->second.begin(), it->second.end(),
-                                   [&reachableStates](const Transition& transition)
-                                   {
-                                       return reachableStates.find(transition.nextState) == reachableStates.end();
-                                   }),
-                    it->second.end());
-
-            if (it->second.empty())
-            {
-                it = m_transitionTable.erase(it);
-            } else
-            {
-                ++it;
-            }
-        }
-
-        m_states.erase(
-                std::remove_if(m_states.begin(), m_states.end(),
-                               [&reachableStates](const std::string& state)
-                               {
-                                   return reachableStates.find(state) == reachableStates.end();
-                               }),
-                m_states.end());
-    }
-
-    void MergeEquivalentStates()
-    {
-        std::map<std::string, int> stateToClass;
-        int classId = 0;
-        for (const auto& state : m_states)
-        {
-            stateToClass[state] = classId++;
-        }
-
-        bool changed;
-        do {
-            changed = false;
-            std::map<int, std::vector<std::string>> classToStates;
-
-            for (const auto& [state, classIdx] : stateToClass)
-            {
-                classToStates[classIdx].push_back(state);
-            }
-
-            std::map<std::string, int> newStateToClass;
-            int newClassId = 0;
-
-            for (const auto& [_, statesInClass] : classToStates)
-            {
-                std::map<std::vector<std::pair<std::string, std::string>>, int> transitionsToNewClass;
-                for (const auto& state : statesInClass)
-                {
-                    std::vector<std::pair<std::string, std::string>> transitions;
-
-                    // Собираем пары (следующее состояние, выходной символ) для каждого входного символа
-                    for (const auto& [inputSymbol, transitionsVec] : m_transitionTable)
-                    {
-                        auto it = std::find_if(transitionsVec.begin(), transitionsVec.end(),
-                                               [&state](const Transition& transition)
-                                               {
-                                                   return transition.nextState == state;
-                                               });
-
-                        if (it != transitionsVec.end())
-                        {
-                            auto pair = std::make_pair(std::to_string(stateToClass[it->nextState]), it->outputSymbol);
-                            transitions.emplace_back(pair);
-                        }
-                        else
-                        {
-                            std::pair<std::string, std::string> pair = std::make_pair("-1", "");
-                            transitions.emplace_back(pair);
-                        }
-                    }
-
-                    if (transitionsToNewClass.find(transitions) == transitionsToNewClass.end())
-                    {
-                        transitionsToNewClass[transitions] = newClassId++;
-                    }
-
-                    newStateToClass[state] = transitionsToNewClass[transitions];
-                }
-            }
-
-            if (newStateToClass != stateToClass)
-            {
-                changed = true;
-                stateToClass = std::move(newStateToClass);
-            }
-        } while (changed);
-
-        for (const auto& [state, classIdx] : stateToClass)
-        {
-            if (state != m_states[classIdx])
-            {
-                ReplaceState(state, m_states[classIdx]);
-            }
-        }
-
-        // Убираем дубликаты из списка состояний
-        std::unordered_set<std::string> uniqueStates(m_states.begin(), m_states.end());
-        m_states.assign(uniqueStates.begin(), uniqueStates.end());
-    }
-
-    void ReplaceState(const std::string& oldState, const std::string& newState)
-    {
-        for (auto& [inputSymbol, transitions] : m_transitionTable)
-        {
-            for (auto& transition : transitions)
-            {
-                if (transition.nextState == oldState)
-                {
-                    transition.nextState = newState;
-                }
-            }
-        }
-    }
+    vector<string> m_states;
+    vector<string> m_inputSymbols;
+    vector<vector<pair<string, string>>> m_transitions;
 };
 
-#endif //LAB1_MEALYAUTOMAT_H
+#endif // LAB1_MEALYAUTOMAT_H
