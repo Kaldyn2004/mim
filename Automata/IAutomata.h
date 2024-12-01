@@ -1,27 +1,7 @@
 #ifndef LAB1_IAUTOMATA_H
 #define LAB1_IAUTOMATA_H
 
-#include <string>
-#include <utility>
-
-struct Transition
-{
-    Transition(std::string  nextState, std::string  outputSymbol)
-            : nextState(std::move(nextState)), outputSymbol(std::move(outputSymbol))
-    {}
-
-    std::string nextState;
-    std::string outputSymbol;
-
-    bool operator<(const Transition& other) const
-    {
-        if (nextState != other.nextState)
-        {
-            return nextState < other.nextState;
-        }
-        return outputSymbol < other.outputSymbol;
-    }
-};
+#include "../stdafx.h"
 
 class IAutomata
 {

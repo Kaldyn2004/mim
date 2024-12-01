@@ -2,15 +2,6 @@
 #define LAB1_MOOREAUTOMAT_H
 
 #include "IAutomata.h"
-#include <iostream>
-#include <vector>
-#include <queue>
-#include <sstream>
-#include <unordered_map>
-#include <unordered_set>
-#include <algorithm>
-#include <fstream>
-#include <stdexcept>
 using namespace std;
 
 class MooreAutomata final : public IAutomata
@@ -66,6 +57,53 @@ public:
 
     void Minimize() override
     {
+        RemoveUnreachableStates();
+        vector<int> partition = InitializePartition();
+        RefinePartition(partition);
+        BuildMinimizedAutomaton(partition);
+    }
+
+    void PrintToFile(const std::string &filename) const override
+    {
+        ofstream file(filename);
+        if (!file.is_open())
+        {
+            cerr << "Error: Unable to write to file " << filename << endl;
+            exit(1);
+        }
+
+        for (const string &outputSymbol : m_outputSymbols)
+        {
+            file<< ";" << outputSymbol;
+        }
+        file << endl;
+
+        for (const string &state : m_states)
+        {
+            file << ";" << state;
+        }
+        file << endl;
+
+        for (size_t i = 0; i < m_inputSymbols.size(); ++i)
+        {
+            file << m_inputSymbols[i];
+            for (const auto &transition : m_transitions[i]) {
+                file << ";" << transition;
+            }
+            file << endl;
+        }
+
+        file.close();
+    }
+
+private:
+    vector<string> m_states;
+    vector<string> m_outputSymbols;
+    vector<string> m_inputSymbols;
+    vector<vector<string>> m_transitions;
+
+    void RemoveUnreachableStates()
+    {
         unordered_set<string> reachable;
         queue<string> toVisit;
         toVisit.push(m_states[0]);
@@ -118,7 +156,10 @@ public:
         m_states = move(reducedStates);
         m_outputSymbols = move(reducedOutputSymbols);
         m_transitions = move(reducedTransitions);
+    }
 
+    vector<int> InitializePartition()
+    {
         vector<int> partition(m_states.size(), 0);
         unordered_map<string, int> outputMap;
 
@@ -132,7 +173,11 @@ public:
             partition[i] = outputMap[outputs];
         }
 
-        // Итеративное уточнение групп
+        return partition;
+    }
+
+    void RefinePartition(vector<int> &partition)
+    {
         bool updated;
         do
         {
@@ -158,8 +203,10 @@ public:
                 partition[i] = newPartitionMap[key];
             }
         } while (updated);
+    }
 
-        // Построение минимизированного автомата
+    void BuildMinimizedAutomaton(const vector<int> &partition)
+    {
         unordered_map<int, string> stateMap;
         vector<string> minimizedStates;
         vector<string> minimizedOutputSymbols;
@@ -191,46 +238,6 @@ public:
         m_outputSymbols = move(minimizedOutputSymbols);
         m_transitions = move(minimizedTransitions);
     }
-
-
-    void PrintToFile(const std::string &filename) const override
-    {
-        ofstream file(filename);
-        if (!file.is_open())
-        {
-            cerr << "Error: Unable to write to file " << filename << endl;
-            exit(1);
-        }
-
-        for (const string &outputSymbol : m_outputSymbols)
-        {
-            file<< ";" << outputSymbol;
-        }
-        file << endl;
-
-        for (const string &state : m_states)
-        {
-            file << ";" << state;
-        }
-        file << endl;
-
-        for (size_t i = 0; i < m_inputSymbols.size(); ++i)
-        {
-            file << m_inputSymbols[i];
-            for (const auto &transition : m_transitions[i]) {
-                file << ";" << transition;
-            }
-            file << endl;
-        }
-
-        file.close();
-    }
-
-private:
-    vector<string> m_states;
-    vector<string> m_outputSymbols;
-    vector<string> m_inputSymbols;
-    vector<vector<string>> m_transitions;
 };
 
 #endif // LAB1_MOOREAUTOMAT_H

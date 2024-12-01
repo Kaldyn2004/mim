@@ -11,7 +11,9 @@ void Minimize(std::unique_ptr<IAutomata> automat, const std::string& inputFile, 
         automat->ReadFromFile(inputFile);
         automat->Minimize();
         automat->PrintToFile(outputFile);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cerr << "Error during processing: " << e.what() << std::endl;
     }
 }
@@ -32,16 +34,20 @@ int main(int argc, char* argv[])
     std::string outputFile = argv[3];
 
     try {
-        if (command == "mealy") {
+        if (command == "mealy")
+        {
             auto automaton = std::make_unique<MealyAutomata>();
             Minimize(std::move(automaton), inputFile, outputFile);
-        } else if (command == "moore") {
+        } else if (command == "moore")
+        {
             auto automaton = std::make_unique<MooreAutomata>();
             Minimize(std::move(automaton), inputFile, outputFile);
-        } else {
+        } else
+        {
             throw std::invalid_argument("Invalid automaton command: " + command);
         }
-    } catch (const std::exception& e) {
+    } catch (const std::exception& e)
+    {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
