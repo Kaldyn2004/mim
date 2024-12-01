@@ -95,7 +95,8 @@ public:
 
         for (size_t i = 0; i < m_states.size(); ++i)
         {
-            if (reachable.count(m_states[i])) {
+            if (reachable.count(m_states[i]))
+            {
                 reducedStates.push_back(m_states[i]);
                 reducedOutputSymbols.push_back(m_outputSymbols[i]);
             }
@@ -121,7 +122,8 @@ public:
         vector<int> partition(m_states.size(), 0);
         unordered_map<string, int> outputMap;
 
-        for (size_t i = 0; i < m_states.size(); ++i) {
+        for (size_t i = 0; i < m_states.size(); ++i)
+        {
             string outputs = m_outputSymbols[i];
             if (outputMap.find(outputs) == outputMap.end())
             {
@@ -130,8 +132,10 @@ public:
             partition[i] = outputMap[outputs];
         }
 
+        // Итеративное уточнение групп
         bool updated;
-        do {
+        do
+        {
             updated = false;
             unordered_map<string, int> newPartitionMap;
 
@@ -155,6 +159,7 @@ public:
             }
         } while (updated);
 
+        // Построение минимизированного автомата
         unordered_map<int, string> stateMap;
         vector<string> minimizedStates;
         vector<string> minimizedOutputSymbols;
@@ -174,9 +179,9 @@ public:
         for (size_t i = 0; i < m_inputSymbols.size(); ++i)
         {
             vector<string> newRow;
-            for (size_t j = 0; j <minimizedStates.size(); ++j)
+            for (size_t j = 0; j < minimizedStates.size(); ++j)
             {
-                int nextIndex = find(minimizedStates.begin(), minimizedStates.end(), m_transitions[i][j]) - minimizedStates.begin();
+                int nextIndex = find(m_states.begin(), m_states.end(), m_transitions[i][j]) - m_states.begin();
                 newRow.push_back(stateMap[partition[nextIndex]]);
             }
             minimizedTransitions[i] = newRow;
@@ -186,6 +191,7 @@ public:
         m_outputSymbols = move(minimizedOutputSymbols);
         m_transitions = move(minimizedTransitions);
     }
+
 
     void PrintToFile(const std::string &filename) const override
     {
