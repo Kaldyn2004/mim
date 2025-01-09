@@ -1,243 +1,521 @@
-#ifndef LAB1_MOOREAUTOMAT_H
-#define LAB1_MOOREAUTOMAT_H
+#pragma once
+#include <fstream>
+#include <map>
+#include <ostream>
+#include <set>
+#include <string>
+#include <vector>
 
-#include "IAutomata.h"
-using namespace std;
+#include "Group.h"
+#include "Transition.h"
+
+using Transitions = std::map<std::string, std::map<std::string, Transition>>;
+using TransitionTable = std::map<std::set<std::string>, std::map<std::string, std::set<std::string>>>;
+constexpr std::string FINAL_STATE_INDEX = "F";
+constexpr std::string E_CLOSE = "ε";
 
 class MooreAutomata final : public IAutomata
 {
 public:
-    MooreAutomata() = default;
-
     void ReadFromFile(const std::string &filename) override
     {
-        ifstream file(filename);
+        std::ifstream file(filename);
         if (!file.is_open())
         {
-            cerr << "Error: Unable to open file " << filename << endl;
-            exit(1);
+            throw std::invalid_argument("Could not open input file " + filename);
         }
 
-        string line;
+        std::string line;
+        std::getline(file, line);
+        auto finalStateIndexes = GetFinalStateIndex(line);
 
-        getline(file, line);
-        stringstream header(line);
-        string cell;
-        getline(header, cell, ';');
-        while (getline(header, cell, ';'))
+        std::getline(file, line);
+        auto states = GetStates(line);
+
+        m_startState = states.front();
+        m_finalStates = GetFinalStatesFromIndexes(finalStateIndexes, states);
+
+
+        SetTransitionsTableData(m_transitions, file, states, m_inputs);
+
+        m_states = GetSetFromStringVector(states);
+    }
+
+    void PrintToFile(const std::string& filename) override
+    {
+        std::ofstream file(filename);
+        if (!file.is_open())
         {
-            m_outputSymbols.push_back(cell);
+            throw std::runtime_error("Could not open output file " + filename);
         }
 
-        getline(file, line);
-        stringstream stateHeader(line);
-        getline(stateHeader, cell, ';');
-        while (getline(stateHeader, cell, ';'))
-        {
-            m_states.push_back(cell);
-        }
+        std::string outputs = ";";
+        std::string states = ";";
 
-        while (getline(file, line))
+        for (int i = 1; auto &state: m_states)
         {
-            stringstream row(line);
-            string inputSymbol;
-            getline(row, inputSymbol, ';');
-            m_inputSymbols.push_back(inputSymbol);
+            states += state;
 
-            vector<string> rowTransitions;
-            while (getline(row, cell, ';'))
+            if (IsFinalState(state))
             {
-                rowTransitions.push_back(cell);
+                outputs += "F";
             }
-            m_transitions.push_back(rowTransitions);
+
+            if (i++ != m_states.size())
+            {
+                outputs += ";";
+                states += ";";
+            }
+        }
+
+        file << outputs << std::endl;
+        file << states << std::endl;
+
+        for (auto &input: m_inputs)
+        {
+            file << input << ";";
+            for (int i = 1; auto &state: m_states)
+            {
+                if (m_transitions.contains(state) &&
+                    m_transitions[state].contains(input))
+                {
+                    file << m_transitions[state].at(input).GetStatesString();
+
+                    if (i != m_states.size())
+                    {
+                        file << ";";
+                    }
+                } else if (i != m_states.size())
+                {
+                    file << ";";
+                }
+                ++i;
+            }
+            file << "\n";
         }
 
         file.close();
     }
 
-    void Minimize() override
+    void Minimize()
     {
-        RemoveUnreachableStates();
-        vector<int> partition = InitializePartition();
-        RefinePartition(partition);
-        BuildMinimizedAutomaton(partition);
-    }
-
-    void PrintToFile(const std::string &filename) const override
-    {
-        ofstream file(filename);
-        if (!file.is_open())
-        {
-            cerr << "Error: Unable to write to file " << filename << endl;
-            exit(1);
-        }
-
-        for (const string &outputSymbol : m_outputSymbols)
-        {
-            file<< ";" << outputSymbol;
-        }
-        file << endl;
-
-        for (const string &state : m_states)
-        {
-            file << ";" << state;
-        }
-        file << endl;
-
-        for (size_t i = 0; i < m_inputSymbols.size(); ++i)
-        {
-            file << m_inputSymbols[i];
-            for (const auto &transition : m_transitions[i]) {
-                file << ";" << transition;
-            }
-            file << endl;
-        }
-
-        file.close();
+        RemoveImpossibleStates();
+        std::map<std::string, std::vector<Group>> groups;
+        StatesGrouping(groups);
+        BuildMinimizedAutomata(groups);
     }
 
 private:
-    vector<string> m_states;
-    vector<string> m_outputSymbols;
-    vector<string> m_inputSymbols;
-    vector<vector<string>> m_transitions;
+    static constexpr char NEW_STATE_CHAR = 'X';
 
-    void RemoveUnreachableStates()
+    std::set<std::string> m_inputs;
+    std::set<std::string> m_states;
+
+    Transitions m_transitions;
+
+    std::string m_startState;
+    std::set<std::string> m_finalStates;
+
+    void BuildMinimizedAutomata(std::map<std::string, std::vector<Group>>& groups)
     {
-        unordered_set<string> reachable;
-        queue<string> toVisit;
-        toVisit.push(m_states[0]);
+        auto newStateNames = GetNewStateNames(groups);
 
-        while (!toVisit.empty())
+        std::string newStartState = newStateNames[m_startState];
+        std::set<std::string> newFinalStates = GetNewFinalStates(groups, newStateNames);
+        std::set<std::string> newStates {};
+        std::set<std::string> newInputs {};
+        Transitions newTransitions {};
+
+        for (auto& pair: groups)
         {
-            string current = toVisit.front();
-            toVisit.pop();
-
-            if (reachable.count(current)) continue;
-            reachable.insert(current);
-
-            int stateIndex = find(m_states.begin(), m_states.end(), current) - m_states.begin();
-            for (const auto &row : m_transitions)
+            for (auto& group: pair.second)
             {
-                string nextState = row[stateIndex];
-                if (!reachable.count(nextState))
+                std::string oldStateName = group.GetMainState();
+                std::string newStateName = newStateNames[oldStateName];
+
+                newStates.insert(newStateName);
+
+                std::map<std::string, Transition> newTransitionsForThisState {};
+                for (auto& transitions: m_transitions[oldStateName])
                 {
-                    toVisit.push(nextState);
+                    std::string input = transitions.first;
+                    newInputs.insert(input);
+
+                    std::string newNextState = newStateNames[transitions.second.GetFirstState()];
+
+                    Transition newTransition(input, newNextState);
+
+                    newTransitionsForThisState.emplace(input, newTransition);
                 }
+
+                newTransitions.emplace(newStateName, newTransitionsForThisState);
             }
         }
 
-        vector<string> reducedStates;
-        vector<string> reducedOutputSymbols;
-        vector<vector<string>> reducedTransitions;
-
-        for (size_t i = 0; i < m_states.size(); ++i)
-        {
-            if (reachable.count(m_states[i]))
-            {
-                reducedStates.push_back(m_states[i]);
-                reducedOutputSymbols.push_back(m_outputSymbols[i]);
-            }
-        }
-
-        for (const auto &row : m_transitions)
-        {
-            vector<string> newRow;
-            for (size_t i = 0; i < m_states.size(); ++i)
-            {
-                if (reachable.count(m_states[i]))
-                {
-                    newRow.push_back(row[i]);
-                }
-            }
-            reducedTransitions.push_back(newRow);
-        }
-
-        m_states = move(reducedStates);
-        m_outputSymbols = move(reducedOutputSymbols);
-        m_transitions = move(reducedTransitions);
+        m_inputs = newInputs;
+        m_states = newStates;
+        m_startState = newStartState;
+        m_finalStates = newFinalStates;;
+        m_transitions = newTransitions;
     }
 
-    vector<int> InitializePartition()
+    std::set<std::string> GetNewFinalStates(std::map<std::string, std::vector<Group>>& groups,
+                                            std::map<std::string, std::string>& newStateNames) const
     {
-        vector<int> partition(m_states.size(), 0);
-        unordered_map<string, int> outputMap;
+        std::set<std::string> finalStates;
 
-        for (size_t i = 0; i < m_states.size(); ++i)
+        for (auto& state: m_finalStates)
         {
-            string outputs = m_outputSymbols[i];
-            if (outputMap.find(outputs) == outputMap.end())
-            {
-                outputMap[outputs] = outputMap.size();
-            }
-            partition[i] = outputMap[outputs];
+            std::string newFinalState = newStateNames[state];
+            finalStates.insert(newFinalState);
         }
 
-        return partition;
+        return finalStates;
     }
 
-    void RefinePartition(vector<int> &partition)
+    std::map<std::string, std::string> GetNewStateNames(std::map<std::string, std::vector<Group>>& groups) const
     {
-        bool updated;
-        do
-        {
-            updated = false;
-            unordered_map<string, int> newPartitionMap;
+        std::map<std::string, std::string> newStateNames;
+        unsigned stateIndex = 1;
 
-            for (size_t i = 0; i < m_states.size(); ++i)
+        for (auto it: groups)
+        {
+            for (auto& group: it.second)
             {
-                string key = to_string(partition[i]) + ",";
-                for (const auto &row : m_transitions)
+                std::string newStateName = group.GetMainState() == m_startState
+                                           ? NEW_STATE_CHAR + std::to_string(0)
+                                           : NEW_STATE_CHAR + std::to_string(stateIndex++);
+                for (auto& state: group.GetStates())
                 {
-                    int nextIndex = find(m_states.begin(), m_states.end(), row[i]) - m_states.begin();
-                    key += to_string(partition[nextIndex]) + ",";
+                    newStateNames[state] = newStateName;
                 }
-                if (newPartitionMap.find(key) == newPartitionMap.end())
-                {
-                    newPartitionMap[key] = newPartitionMap.size();
-                }
-                if (partition[i] != newPartitionMap[key])
-                {
-                    updated = true;
-                }
-                partition[i] = newPartitionMap[key];
             }
-        } while (updated);
+        }
+
+        return newStateNames;
     }
 
-    void BuildMinimizedAutomaton(const vector<int> &partition)
+    void StatesGrouping(std::map<std::string, std::vector<Group>>& groups)
     {
-        unordered_map<int, string> stateMap;
-        vector<string> minimizedStates;
-        vector<string> minimizedOutputSymbols;
-        vector<vector<string>> minimizedTransitions(m_inputSymbols.size());
-        char sim = m_states[0][0];
+        std::map<std::string, Group*> stateToGroup;
+        InitGroups(groups, stateToGroup);
 
-        for (size_t i = 0; i < m_states.size(); ++i)
+        while (true)
         {
-            if (stateMap.find(partition[i]) == stateMap.end())
+            bool isChangedSize = false;
+
+            for (auto& pair: groups)
             {
-                stateMap[partition[i]] = sim + to_string(stateMap.size());
-                minimizedStates.push_back(stateMap[partition[i]]);
-                minimizedOutputSymbols.push_back(m_outputSymbols[i]);
+                std::vector<Group> newGroups;
+
+                for (auto& group: pair.second)
+                {
+                    if (group.GetStatesCount() == 1)
+                    {
+                        continue;
+                    }
+
+                    std::string mainState = group.GetMainState();
+
+                    for (auto& state: group.GetStates())
+                    {
+                        if (state == mainState)
+                        {
+                            continue;
+                        }
+
+                        if (!IsStatesTransitionsEquals(mainState, state, stateToGroup))
+                        {
+                            group.RemoveState(state);
+
+                            Group newGroup;
+                            newGroup.AddState(state);
+
+                            newGroups.emplace_back(std::move(newGroup));
+                            stateToGroup[state] = &newGroups.back();
+                        }
+                    }
+                }
+
+                for (auto& it: newGroups)
+                {
+                    bool isAdded = false;
+                    for (auto& group: pair.second)
+                    {
+                        std::string mainState = group.GetMainState();
+                        if (IsStatesTransitionsEquals(mainState, it.GetMainState(), stateToGroup))
+                        {
+                            group.AddState(it.GetMainState());
+                            isAdded = true;
+                            break;
+                        }
+                    }
+
+                    if (!isAdded)
+                    {
+                        pair.second.emplace_back(it);
+                    }
+
+                    if (!isChangedSize)
+                    {
+                        isChangedSize = true;
+                    }
+                }
+            }
+
+            if (!isChangedSize)
+            {
+                break;
+            }
+        }
+    }
+
+    bool IsStatesTransitionsEquals(const std::string& firstState, const std::string& secondState,
+                                   std::map<std::string, Group*>& stateToGroup)
+    {
+        auto& firstStateTransitions = m_transitions.at(firstState);
+        auto& secondStateTransitions = m_transitions.at(secondState);
+
+        if (firstStateTransitions.size() != secondStateTransitions.size())
+        {
+            return false;
+        }
+
+        for (auto& [input, transition]: firstStateTransitions)
+        {
+            if (!secondStateTransitions.contains(input))
+            {
+                return false;
+            }
+
+            auto nextStatesFromFirstState = transition.GetStates();
+            auto nextStatesFromSecondState = secondStateTransitions.at(input).GetStates();
+
+            if (nextStatesFromFirstState.size() != nextStatesFromSecondState.size())
+            {
+                throw std::invalid_argument("Empty transition");
+            }
+
+            auto firstNextState = *nextStatesFromFirstState.begin();
+            auto secondNextState = *nextStatesFromSecondState.begin();
+
+            if (stateToGroup[firstNextState] != stateToGroup[secondNextState])
+            {
+                return false;
             }
         }
 
-        for (size_t i = 0; i < m_inputSymbols.size(); ++i)
+        return true;
+    }
+
+    void InitGroups(std::map<std::string, std::vector<Group>> &groups,
+                    std::map<std::string, Group*>& stateToGroup) const
+    {
+        Group group;
+
+        groups.emplace("F", std::vector<Group>());
+        if (m_states.size() != m_finalStates.size())
         {
-            vector<string> newRow;
-            for (size_t j = 0; j < minimizedStates.size(); ++j)
-            {
-                int nextIndex = find(m_states.begin(), m_states.end(), m_transitions[i][j]) - m_states.begin();
-                newRow.push_back(stateMap[partition[nextIndex]]);
-            }
-            minimizedTransitions[i] = newRow;
+            groups.emplace(" ", std::vector<Group>());
+            groups.at(" ").emplace_back(group);
         }
 
-        m_states = move(minimizedStates);
-        m_outputSymbols = move(minimizedOutputSymbols);
-        m_transitions = move(minimizedTransitions);
+        groups.at("F").emplace_back(group);
+
+        for (auto& state: m_states)
+        {
+            std::string key = " ";
+            if (IsFinalState(state))
+            {
+                key = "F";
+            }
+            stateToGroup.emplace(state, &groups.at(key).front());
+            groups.at(key).front().AddState(state);
+        }
+    }
+
+    void RemoveImpossibleStates()
+    {
+        std::set<std::string> impossibleStates = GetImpossibleStates();
+
+        for (auto &state: impossibleStates)
+        {
+            m_states.erase(state);
+            m_transitions.erase(state);
+
+            if (m_finalStates.contains(state))
+            {
+                m_finalStates.erase(state);
+            }
+        }
+    }
+
+    std::set<std::string> GetImpossibleStates()
+    {
+        std::set possibleStatesSet = { m_startState };
+        std::vector possibleStatesVector = { m_startState };
+        size_t index = 0;
+
+        while (index < possibleStatesVector.size())
+        {
+            std::string sourceState = possibleStatesVector[index++];
+
+            for (auto& i: m_transitions[sourceState])
+            {
+                auto nextStates = i.second.GetStates();
+
+                for (const auto& state: nextStates)
+                {
+                    if (!possibleStatesSet.contains(state))
+                    {
+                        possibleStatesSet.insert(state);
+                        possibleStatesVector.push_back(state);
+                    }
+                }
+            }
+        }
+
+        std::set<std::string> impossibleStates;
+        for (auto& state: m_states)
+        {
+            if (!possibleStatesSet.contains(state))
+            {
+                impossibleStates.insert(state);
+            }
+        }
+
+        return impossibleStates;
+    }
+
+    [[nodiscard]] bool IsFinalState(const std::string &state) const
+    {
+        return m_finalStates.contains(state);
+    }
+
+    static void SplitTransitionsLine(const std::string& line, Transitions& transitions,
+                                     const std::string& state, const std::string& input)
+    {
+        std::stringstream ss(line);
+        std::string nextState;
+
+        Transition transition(input);
+
+        while (std::getline(ss, nextState, ','))
+        {
+            transition.AddState(nextState);
+        }
+
+        if (!transitions.contains(state))
+        {
+            transitions.emplace(state, std::map<std::string, Transition>());
+        }
+
+        if (!transitions[state].contains(input))
+        {
+            transitions[state].emplace(input, transition);
+        }
+        else
+        {
+            transitions[state].at(input) = transition;
+        }
+    }
+
+    static void SetTransitionsTableData(Transitions& transitions, std::ifstream& file,
+                                        std::vector<std::string>& states, std::set<std::string>& inputs)
+    {
+        std::string line;
+
+        while (std::getline(file, line))
+        {
+            std::stringstream ss(line);
+            std::string inputSymbol;
+
+            size_t stateIndex = 0;
+
+            if (std::getline(ss, inputSymbol, ';'))
+            {
+                std::string transition;
+                while (std::getline(ss, transition, ';'))
+                {
+                    if (stateIndex >= states.size())
+                    {
+                        throw std::invalid_argument("State index out of range");
+                    }
+
+                    if (!transition.empty())
+                    {
+                        SplitTransitionsLine(transition, transitions, states[stateIndex], inputSymbol);
+                    }
+
+                    ++stateIndex;
+                }
+
+                inputs.emplace(inputSymbol);
+            }
+        }
+    }
+
+    static std::set<std::string> GetSetFromStringVector(std::vector<std::string>& vec)
+    {
+        return {vec.begin(), vec.end()};
+    }
+
+    static std::vector<std::string> GetStates(std::string& line)
+    {
+        std::vector<std::string> states;
+
+        std::stringstream ss(line);
+        std::string state;
+
+        while (std::getline(ss, state, ';'))
+        {
+            if (!state.empty())
+            {
+                states.emplace_back(state);
+            }
+        }
+
+        return states;
+    }
+
+    static std::set<size_t> GetFinalStateIndex(const std::string& line)
+    {
+        std::set<size_t> finalStateIndexes {};
+
+        std::stringstream ss(line);
+        std::string str;
+        size_t index = -1;
+
+        while (std::getline(ss, str, ';'))
+        {
+            if (index++ == -1)
+            {
+                continue;
+            }
+
+            if (str == FINAL_STATE_INDEX)
+            {
+                finalStateIndexes.emplace(index - 1);
+            }
+        }
+
+        if (finalStateIndexes.empty())
+        {
+            throw std::invalid_argument("Could not find 'F' (final state) in input file " + line);
+        }
+
+        return finalStateIndexes;
+    }
+
+    static std::set<std::string> GetFinalStatesFromIndexes(std::set<size_t>& finalStateIndexes,
+                                                           std::vector<std::string>& states)
+    {
+        std::set<std::string> finalStates;
+        for (auto& index: finalStateIndexes)
+        {
+            finalStates.emplace(states[index]);
+        }
+
+        return finalStates;
     }
 };
-
-#endif // LAB1_MOOREAUTOMAT_H

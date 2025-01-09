@@ -59,7 +59,7 @@ public:
         BuildMinimizedAutomata(partition);
     }
 
-    void PrintToFile(const std::string &filename) const override
+    void PrintToFile(const std::string &filename) override
     {
         ofstream file(filename);
         if (!file.is_open()) {
